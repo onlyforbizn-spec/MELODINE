@@ -12,8 +12,36 @@ const anyFile = upload.any();
 app.use(express.json({ limit: '10mb' }));
 
 const SHOP = process.env.SHOPIFY_SHOP;
-const TOKEN = process.env.SHOPIFY_TOKEN;
+const CLIENT_ID = process.env.SHOPIFY_CLIENT_ID;
+const CLIENT_SECRET = process.env.SHOPIFY_CLIENT_SECRET;
 const API = '2026-04';
+
+// ---- Récupération auto du token Shopify (client credentials, refresh avant expiration) ----
+let cachedToken = null;
+let tokenExpiry = 0;
+
+async function getToken() {
+  const now = Date.now();
+  if (cachedToken && now < tokenExpiry) return cachedToken;
+  const r = await fetch(`https://${SHOP}/admin/oauth/access_token`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      client_id: CLIENT_ID,
+      client_secret: CLIENT_SECRET,
+      grant_type: 'client_credentials'
+    })
+  });
+  const data = await r.json();
+  if (!data.access_token) {
+    throw new Error('token fetch failed: ' + JSON.stringify(data));
+  }
+  cachedToken = data.access_token;
+  // refresh 1h avant l'expiration réelle
+  tokenExpiry = now + ((data.expires_in || 86400) - 3600) * 1000;
+  console.log('Shopify token refreshed, scope:', data.scope);
+  return cachedToken;
+}
 
 function pickFile(req) {
   if (req.file) return req.file;
@@ -30,15 +58,14 @@ app.use((req, res, next) => {
   next();
 });
 
-function shopifyGraphQL(body) {
-  const authHeader = TOKEN && TOKEN.startsWith('atkn_')
-    ? { 'Authorization': `Bearer ${TOKEN}` }
-    : { 'X-Shopify-Access-Token': TOKEN };
-  return fetch(`https://${SHOP}/admin/api/${API}/graphql.json`, {
+async function shopifyGraphQL(body) {
+  const token = await getToken();
+  const r = await fetch(`https://${SHOP}/admin/api/${API}/graphql.json`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...authHeader },
+    headers: { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': token },
     body: JSON.stringify(body)
-  }).then(r => r.json());
+  });
+  return r.json();
 }
 
 async function findFileUrl(filename) {
