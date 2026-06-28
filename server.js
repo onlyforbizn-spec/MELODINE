@@ -308,7 +308,7 @@ app.post('/trim', anyFile, (req, res) => {
   console.log('TRIM: file =', file ? file.originalname + ' / ' + file.size + ' bytes' : 'NONE');
   if (!file) return res.status(400).send('no file received');
   const out = path.join(os.tmpdir(), `trim_${Date.now()}.mp3`);
-  execFile('ffmpeg', ['-y', '-i', file.path, '-t', '30', '-acodec', 'copy', out], (err) => {
+  execFile('ffmpeg', ['-y', '-i', file.path, '-t', '30', '-acodec', 'libmp3lame', '-b:a', '192k', out], (err) => {
     fs.unlink(file.path, () => {});
     if (err) { console.log('FFMPEG ERROR:', err.message); return res.status(500).send('ffmpeg error: ' + err.message); }
     res.sendFile(out, () => fs.unlink(out, () => {}));
